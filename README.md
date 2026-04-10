@@ -28,6 +28,36 @@ The workflow runs automatically on push. It will also trigger every 15 minutes v
 
 You can also trigger a manual run from the **Actions** tab using **Run workflow**.
 
+## Running via cron (Linux/macOS)
+
+To run the script every 15 minutes on your own server instead of (or in addition to) GitHub Actions:
+
+1. Install dependencies and set up a `.env` file:
+
+   ```bash
+   pip install requests feedparser python-dotenv
+   cp .env.example .env
+   # edit .env with your DISCORD_WEBHOOK and TWITTER_USERNAME
+   ```
+
+2. Open your crontab:
+
+   ```bash
+   crontab -e
+   ```
+
+3. Add this line, replacing the path with the absolute path to your repo:
+
+   ```
+   */15 * * * * cd /path/to/x-webhook && /usr/bin/python3 monitor.py >> /path/to/x-webhook/monitor.log 2>&1
+   ```
+
+   To find the correct Python path run `which python3`.
+
+4. Save and exit. Verify the job was added with `crontab -l`.
+
+Logs will be written to `monitor.log`. The script reads `.env` automatically when `python-dotenv` is installed.
+
 ## Local testing
 
 ```bash

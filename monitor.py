@@ -3,6 +3,13 @@ import re
 import requests
 import feedparser
 from datetime import datetime, timezone
+from urllib.parse import unquote
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 DISCORD_WEBHOOK = os.environ["DISCORD_WEBHOOK"]
 TWITTER_USERNAME = os.environ["TWITTER_USERNAME"]
@@ -67,29 +74,45 @@ def _x_link(entry):
     return x or f"https://x.com/{TWITTER_USERNAME}"
 
 
+def _image_url(entry):
+    """Return the URL of the first image in the entry's HTML summary, or None."""
+    raw = entry.get("summary", "")
+    match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', raw, re.IGNORECASE)
+    if not match:
+        return None
+    url = match.group(1)
+    # Nitter proxies images — rewrite to the direct twimg CDN URL Discord can embed
+    # e.g. https://nitter.net/pic/media%2FHFj1yg4WAAA0PUw.jpg
+    #   -> https://pbs.twimg.com/media/HFj1yg4WAAA0PUw.jpg
+    url = re.sub(r"https?://[^/]+/pic/(.+)", lambda m: "https://pbs.twimg.com/" + unquote(m.group(1)), url)
+    return url
+
+
 def send_to_discord(entry):
     text = _clean_text(entry)
     if len(text) > 1800:
         text = text[:1797] + "..."
 
     link = _x_link(entry)
+    image = _image_url(entry)
 
-    payload = {
-        "embeds": [
-            {
-                "author": {
-                    "name": f"@{TWITTER_USERNAME}",
-                    "url": f"https://x.com/{TWITTER_USERNAME}",
-                },
-                "title": "View on X \u2192",
-                "url": link,
-                "description": text,
-                "color": 0x000000,
-                "footer": {"text": "X (Twitter)"},
-                "timestamp": _iso_timestamp(entry),
-            }
-        ]
+    embed = {
+        "author": {
+            "name": f"@{TWITTER_USERNAME}",
+            "url": f"https://x.com/{TWITTER_USERNAME}",
+        },
+        "title": "View on X \u2192",
+        "url": link,
+        "description": text,
+        "color": 0x000000,
+        "footer": {"text": "X (Twitter)"},
+        "timestamp": _iso_timestamp(entry),
     }
+
+    if image:
+        embed["image"] = {"url": image}
+
+    payload = {"embeds": [embed]}
 
     resp = requests.post(DISCORD_WEBHOOK, json=payload, timeout=10)
     resp.raise_for_status()
