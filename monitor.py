@@ -8,11 +8,11 @@ DISCORD_WEBHOOK = os.environ["DISCORD_WEBHOOK"]
 TWITTER_USERNAME = os.environ["TWITTER_USERNAME"]
 LAST_ID_FILE = "last_tweet_id.txt"
 
-# Multiple public RSSHub instances — tried in order until one works
+# Nitter instances tried in order until one returns entries
 RSSHUB_INSTANCES = [
-    f"https://rsshub.app/twitter/user/{TWITTER_USERNAME}",
-    f"https://rsshub.rssforever.com/twitter/user/{TWITTER_USERNAME}",
-    f"https://hub.slarker.me/twitter/user/{TWITTER_USERNAME}",
+    f"https://nitter.net/{TWITTER_USERNAME}/rss",
+    f"https://nitter.privacydev.net/{TWITTER_USERNAME}/rss",
+    f"https://nitter.poast.org/{TWITTER_USERNAME}/rss",
 ]
 
 
@@ -43,14 +43,36 @@ def save_last_id(tweet_id):
         f.write(tweet_id)
 
 
-def send_to_discord(entry):
-    # Strip HTML tags from summary
-    raw = entry.get("summary", entry.get("title", ""))
-    text = re.sub(r"<[^>]+>", "", raw).strip()
-    if len(text) > 500:
-        text = text[:497] + "..."
+def _iso_timestamp(entry):
+    """Return an ISO 8601 timestamp Discord accepts (e.g. 2026-04-09T10:00:00+00:00)."""
+    parsed = entry.get("published_parsed")  # time.struct_time in UTC from feedparser
+    if parsed:
+        return datetime(*parsed[:6], tzinfo=timezone.utc).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
-    link = entry.get("link", f"https://x.com/{TWITTER_USERNAME}")
+
+def _clean_text(entry):
+    """Convert nitter RSS HTML to clean plain text, preserving line breaks."""
+    raw = entry.get("summary", entry.get("title", ""))
+    text = re.sub(r"<br\s*/?>", "\n", raw, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _x_link(entry):
+    """Rewrite nitter link to x.com."""
+    nitter = entry.get("link", "")
+    x = re.sub(r"https?://[^/]+/", "https://x.com/", nitter, count=1)
+    return x or f"https://x.com/{TWITTER_USERNAME}"
+
+
+def send_to_discord(entry):
+    text = _clean_text(entry)
+    if len(text) > 1800:
+        text = text[:1797] + "..."
+
+    link = _x_link(entry)
 
     payload = {
         "embeds": [
@@ -59,12 +81,12 @@ def send_to_discord(entry):
                     "name": f"@{TWITTER_USERNAME}",
                     "url": f"https://x.com/{TWITTER_USERNAME}",
                 },
-                "description": f"{text}\n\n[View on X]({link})",
-                "color": 0x1D9BF0,
+                "title": "View on X \u2192",
+                "url": link,
+                "description": text,
+                "color": 0x000000,
                 "footer": {"text": "X (Twitter)"},
-                "timestamp": entry.get(
-                    "published", datetime.now(timezone.utc).isoformat()
-                ),
+                "timestamp": _iso_timestamp(entry),
             }
         ]
     }
